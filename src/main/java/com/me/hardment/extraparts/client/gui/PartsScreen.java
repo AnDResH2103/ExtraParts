@@ -4,21 +4,26 @@ import com.me.hardment.extraparts.common.parts.PartData;
 import com.me.hardment.extraparts.common.parts.PartRegistry;
 import com.me.hardment.extraparts.common.parts.PartType;
 import com.me.hardment.extraparts.common.parts.PlayerParts;
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.gui.screens.inventory.InventoryScreen;
 import net.minecraft.network.chat.Component;
+import org.joml.Vector3f;
+import org.joml.Quaternionf;
 
 public class PartsScreen extends Screen {
 
     private PartType selectedCategory = PartType.WINGS;
+    private int selectedPartIndex = -1;
+
+    // 🔥 SCROLL
+    private int scrollOffset = 0;
+    private static final int CATEGORY_HEIGHT = 24;
+    private static final int VISIBLE_CATEGORIES = 10;
 
     public PartsScreen() {
         super(Component.literal("Extra Parts"));
-    }
-
-    @Override
-    protected void init() {
-        // ya no usamos botones
     }
 
     @Override
@@ -30,42 +35,62 @@ public class PartsScreen extends Screen {
         int leftX = 20;
         int startY = 40;
 
-        int i = 0;
+        // 🟫 PANEL IZQUIERDO
+        g.fill(leftX - 10, 20, leftX + 120, screenHeight - 20, 0xAA101010);
 
-        // 🟩 Categorías
-        for (PartType part : PartType.values()) {
+        PartType[] allParts = PartType.values();
 
-            int y = startY + (i * 20);
+        int startIndex = scrollOffset;
+        int endIndex = Math.min(allParts.length, startIndex + VISIBLE_CATEGORIES);
+
+        for (int i = startIndex; i < endIndex; i++) {
+
+            PartType part = allParts[i];
+            int y = startY + ((i - startIndex) * CATEGORY_HEIGHT);
 
             boolean hovered = mouseX >= leftX && mouseX <= leftX + 100 &&
-                    mouseY >= y && mouseY <= y + 12;
+                    mouseY >= y && mouseY <= y + 16;
 
-            int color;
+            boolean selected = part == selectedCategory;
 
-            if (part == selectedCategory) {
-                color = 0x00FF00;
+            if (selected) {
+                g.fill(leftX - 8, y - 2, leftX + 102, y + 16, 0x55FFFF55);
+                g.fill(leftX - 10, y - 2, leftX - 6, y + 16, 0xFFFFFF55);
             } else if (hovered) {
-                color = 0xFFFF00;
-            } else {
-                color = 0xFFFFFF;
+                g.fill(leftX - 8, y - 2, leftX + 102, y + 16, 0x55888888);
             }
 
-            g.drawString(this.font, part.name(), leftX, y, color);
+            int color = selected ? 0xFFFFFF : (hovered ? 0xFFFFAA : 0xBBBBBB);
 
-            i++;
+            g.drawString(this.font, part.name(), leftX + 1, y, color);
+            g.drawString(this.font, part.name(), leftX, y, color);
         }
 
-        // ⬛ panel derecho
-        g.fill(140, 30, screenWidth - 10, screenHeight - 10, 0x66000000);
+        // 🟩 SCROLLBAR
+        int total = allParts.length;
 
-        // 🔥 PARTES REALES (NO placeholders)
+        if (total > VISIBLE_CATEGORIES) {
+
+            int barHeight = VISIBLE_CATEGORIES * CATEGORY_HEIGHT;
+            int totalHeight = total * CATEGORY_HEIGHT;
+
+            int scrollBarHeight = Math.max(20, (barHeight * barHeight) / totalHeight);
+            int scrollY = startY + (scrollOffset * (barHeight - scrollBarHeight)) / (total - VISIBLE_CATEGORIES);
+
+            g.fill(leftX + 105, startY, leftX + 110, startY + barHeight, 0x55222222);
+            g.fill(leftX + 105, scrollY, leftX + 110, scrollY + scrollBarHeight, 0xFFAAAAAA);
+        }
+
+        // 🟫 PANEL DERECHO
+        g.fill(140, 30, screenWidth - 10, screenHeight - 10, 0xAA101010);
+
         var parts = PartRegistry.getByType(selectedCategory);
 
         int startX = 160;
         int startGridY = 50;
 
-        int size = 60;
-        int spacing = 10;
+        int size = 64;
+        int spacing = 12;
 
         for (int j = 0; j < parts.size(); j++) {
 
@@ -74,21 +99,82 @@ public class PartsScreen extends Screen {
             int x = startX + (j % 3) * (size + spacing);
             int y = startGridY + (j / 3) * (size + spacing);
 
-            // fondo
-            g.fill(x, y, x + size, y + size, 0xFF555555);
+            boolean hovered = mouseX >= x && mouseX <= x + size &&
+                    mouseY >= y && mouseY <= y + size;
 
-            // 🖼️ textura
-            g.blit(
-                    part.getTexture(),
-                    x + 5, y + 5,
-                    0, 0,
-                    size - 10, size - 10,
-                    size - 10, size - 10
-            );
+            boolean selected = j == selectedPartIndex;
+
+            int bgColor = 0xFF3A3A3A;
+
+            if (hovered) bgColor = 0xFF4A4A4A;
+            if (selected) bgColor = 0xFF6A6A2A;
+
+            g.fill(x, y, x + size, y + size, bgColor);
+
+            if (selected) {
+                g.fill(x, y, x + size, y + 2, 0xFFFFFF55);
+                g.fill(x, y + size - 2, x + size, y + size, 0xFFFFFF55);
+                g.fill(x, y, x + 2, y + size, 0xFFFFFF55);
+                g.fill(x + size - 2, y, x + size, y + size, 0xFFFFFF55);
+            }
+
+            g.blit(part.getTexture(), x + 6, y + 6, 0, 0,
+                    size - 12, size - 12,
+                    size - 12, size - 12);
         }
 
-        // título
-        g.drawCenteredString(this.font, "Extra Parts", screenWidth / 2, 10, 0xFFFFFF);
+        // 🧍 PREVIEW DEL JUGADOR (🔥 FIX COMPLETO)
+        int previewX = 60;
+        int previewY = screenHeight - 40;
+        int scale = 35;
+
+        var player = Minecraft.getInstance().player;
+
+        if (player != null) {
+
+            float mouseRotX = (float)(mouseX - previewX) * 0.01F;
+
+            // 🔥 SOLO ROTACIÓN EN Y (más estable)
+            Quaternionf rotation = new Quaternionf()
+                    .rotateX((float)Math.PI)   // 🔥 corrige que esté de cabeza
+                    .rotateY(mouseRotX);
+
+            Quaternionf cameraRotation = new Quaternionf()
+                    .rotateY((float)Math.PI); // para que mire al frente
+
+            Vector3f translation = new Vector3f(0.0F, player.getBbHeight() / 2.0F, 0.0F);
+
+            InventoryScreen.renderEntityInInventory(
+                    g,
+                    (float) previewX,
+                    (float) previewY,
+                    (float) scale,
+                    translation,
+                    rotation,
+                    cameraRotation,
+                    player
+            );
+        } else {
+            g.drawString(this.font, "Cargando...", previewX - 30, previewY, 0xAAAAAA);
+        }
+
+        // 🏷️ título
+        g.drawCenteredString(this.font, "§lEXTRA PARTS", screenWidth / 2, 12, 0xFFFFFF);
+
+    }
+
+    @Override
+    public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
+
+        int maxScroll = Math.max(0, PartType.values().length - VISIBLE_CATEGORIES);
+
+        if (scrollY < 0) {
+            scrollOffset = Math.min(scrollOffset + 1, maxScroll);
+        } else if (scrollY > 0) {
+            scrollOffset = Math.max(scrollOffset - 1, 0);
+        }
+
+        return true;
     }
 
     @Override
@@ -97,31 +183,32 @@ public class PartsScreen extends Screen {
         int leftX = 20;
         int startY = 40;
 
-        int i = 0;
+        PartType[] allParts = PartType.values();
 
-        // 🔹 seleccionar categoría
-        for (PartType part : PartType.values()) {
+        int startIndex = scrollOffset;
+        int endIndex = Math.min(allParts.length, startIndex + VISIBLE_CATEGORIES);
 
-            int y = startY + (i * 20);
+        for (int i = startIndex; i < endIndex; i++) {
+
+            PartType part = allParts[i];
+            int y = startY + ((i - startIndex) * CATEGORY_HEIGHT);
 
             if (mouseX >= leftX && mouseX <= leftX + 100 &&
-                    mouseY >= y && mouseY <= y + 12) {
+                    mouseY >= y && mouseY <= y + 16) {
 
                 selectedCategory = part;
+                selectedPartIndex = -1;
                 return true;
             }
-
-            i++;
         }
 
-        // 🔥 CLICK EN PARTES (GRID)
         var parts = PartRegistry.getByType(selectedCategory);
 
         int startX = 160;
         int startGridY = 50;
 
-        int size = 60;
-        int spacing = 10;
+        int size = 64;
+        int spacing = 12;
 
         for (int j = 0; j < parts.size(); j++) {
 
@@ -131,8 +218,10 @@ public class PartsScreen extends Screen {
             if (mouseX >= x && mouseX <= x + size &&
                     mouseY >= y && mouseY <= y + size) {
 
-                // 🔥 ACTIVAR / DESACTIVAR PARTE
-                PlayerParts.togglePart(selectedCategory);
+                selectedPartIndex = j;
+
+                PartData part = parts.get(j);
+                PlayerParts.setPart(selectedCategory, part);
 
                 return true;
             }

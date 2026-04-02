@@ -18,4 +18,7 @@ public class PlayerParts {
     public static boolean hasPart(PartType part) {
         return activeParts.contains(part);
     }
+
+    public static void setPart(PartType selectedCategory, PartData part) {
+    }
 }
